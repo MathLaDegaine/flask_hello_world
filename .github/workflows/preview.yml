@@ -1,0 +1,54 @@
+name: Deploy Preview with Docker & Ngrok
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  preview-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: docker build -t my-flask-app .
+
+      - name: Run Docker Container
+        run: docker run -d -p 5000:5000 my-flask-app
+
+      - name: Install Ngrok
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok
+
+      - name: Start Ngrok Tunnel
+        env:
+          NGROK_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: |
+          ngrok config add-authtoken $NGROK_TOKEN
+          nohup ngrok http 5000 > ngrok.log 2>&1 &
+          echo "Ngrok démarre..."
+          sleep 5 # On attend un peu que la connexion se fasse
+
+      - name: Extract Ngrok URL
+        run: |
+          curl -s http://localhost:4040/api/tunnels > tunnels.json
+          URL=$(cat tunnels.json | jq -r '.tunnels[0].public_url')
+          
+          echo "L'URL est : $URL"
+
+          echo "$URL" > url_preview.txt
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lien-Preview-Site
+          path: url_preview.txt
+
+      - name: Keep Alive (300s)
+        run: |
+          echo "Le site est accessible pendant 300 secondes..."
+          sleep 300
